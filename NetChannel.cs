@@ -3,58 +3,49 @@ using System.Collections.Concurrent;
 
 namespace NetFlanders
 {
+    internal enum NetChannelFlags : byte
+    {
+        Unreliable = 0,
+        Reliable = 1 << 0,
+        Sequenced = 1 << 1,
+    }
+
     internal sealed class NetChannel
     {
-        internal readonly bool IsReliable;
-        internal readonly bool IsSequenced;
-        internal readonly byte Id;
+        private readonly NetChannelFlags _flags;
+        public NetChannelFlags Flags => _flags;
 
-        private readonly NetPeer _peer;
-
+        private readonly byte _id;
         private ushort _sequenceId;
 
-        private readonly ConcurrentQueue<NetPacket> _queuedPackets = new ConcurrentQueue<NetPacket>();
+        public byte Id => _id;
 
-        public NetChannel(NetPeer peer, byte id, bool reliable, bool sequenced)
+        private readonly NetDataWriter _writer = new NetDataWriter();
+
+        public NetChannel(byte id, NetChannelFlags flags)
         {
-            _peer = peer;
-            Id = id;
-            IsReliable = reliable;
-            IsSequenced = sequenced;
+            _id = id;
+            _flags = flags;
         }
 
-        public void QueuePacket(NetPacket packet)
+        internal void HandleAck()
         {
-            _queuedPackets.Enqueue(packet);
+
         }
 
-        internal void SendQueuedPackets()
+        internal NetPacket PreparePacket(NetDataWriter message)
         {
-            while (_queuedPackets.TryDequeue(out var packet))
+            _writer.Clear();
+            _writer.Put(_flags);
+
+            if (_flags.HasFlag(NetChannelFlags.Sequenced))
             {
-                //TODO: merge packets?
-                Send(packet);
-            }
-        }
-
-        private void Send(NetPacket packet)
-        {
-            int headerSize = 1 + (IsSequenced ? sizeof(ushort) : 0);
-
-            byte[] packetData = new byte[NetPacket.HeaderSize + headerSize + packet.RawData.Length];
-            packetData[0] = (byte)packet.Flags;
-
-            byte type = (byte)((IsReliable ? 1 << 0 : 0) | (IsSequenced ? 1 << 1 : 0));
-            packetData[1] = type;
-            if (IsSequenced)
-            {
-                NetBitWriter.Write(packetData, 2, _sequenceId);
+                _writer.Put(_sequenceId);
                 _sequenceId++;
             }
-            Buffer.BlockCopy(packet.RawData, 0, packetData, NetPacket.HeaderSize, packet.RawData.Length);
+            _writer.PutRaw(message.GetRawData());
 
-
-            _peer.Send(packetData);
+            return new NetPacket(NetPacketFlags.None, _writer.GetReader());
         }
     }
 }

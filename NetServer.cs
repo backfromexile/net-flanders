@@ -2,7 +2,7 @@
 {
     public sealed class NetServer : NetSocket
     {
-        internal NetServer(int port) : base(port)
+        public NetServer(int port) : base(port)
         {
         }
     }

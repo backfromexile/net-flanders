@@ -3,7 +3,9 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 16
 VisualStudioVersion = 16.0.30804.86
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NetFlanders", "NetFlanders.csproj", "{E5884910-D403-47EE-8C8C-A593A9DF7BAC}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "NetFlanders", "NetFlanders.csproj", "{E5884910-D403-47EE-8C8C-A593A9DF7BAC}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "NetFlanders.Runs", "..\NetFlanders.Runs\NetFlanders.Runs.csproj", "{D0499F84-3A15-4590-8E40-947E2C638BC1}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -15,6 +17,10 @@ Global
 		{E5884910-D403-47EE-8C8C-A593A9DF7BAC}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{E5884910-D403-47EE-8C8C-A593A9DF7BAC}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{E5884910-D403-47EE-8C8C-A593A9DF7BAC}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D0499F84-3A15-4590-8E40-947E2C638BC1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D0499F84-3A15-4590-8E40-947E2C638BC1}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D0499F84-3A15-4590-8E40-947E2C638BC1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D0499F84-3A15-4590-8E40-947E2C638BC1}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

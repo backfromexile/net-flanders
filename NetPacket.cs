@@ -1,16 +1,28 @@
 ﻿namespace NetFlanders
 {
-    internal readonly struct NetPacket
+    internal struct NetPacket : INetMessage
     {
         internal static readonly int HeaderSize = sizeof(NetPacketFlags);
 
-        public readonly NetPacketFlags Flags;
-        public readonly byte[] RawData;
+        public NetPacketFlags Flags;
+        public NetDataReader Data;
 
-        public NetPacket(NetPacketFlags flags, byte[] rawData)
+        public NetPacket(NetPacketFlags flags, NetDataReader data)
         {
             Flags = flags;
-            RawData = rawData;
+            Data = data;
+        }
+
+        public void NetDeserialize(NetDataReader reader)
+        {
+            Flags = reader.ReadEnum<NetPacketFlags>();
+            Data = new NetDataReader(reader);
+        }
+
+        public void NetSerialize(NetDataWriter writer)
+        {
+            writer.Put(Flags);
+            writer.Put(Data);
         }
     }
 }

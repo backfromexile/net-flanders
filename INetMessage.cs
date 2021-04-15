@@ -2,7 +2,7 @@
 {
     public interface INetMessage
     {
-        void NetSerialize(INetDataWriter writer);
-        void NetDeserialize(INetDataReader reader);
+        void NetSerialize(NetDataWriter writer);
+        void NetDeserialize(NetDataReader reader);
     }
 }
