@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Concurrent;
-using System.Diagnostics;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
@@ -8,12 +7,6 @@ using System.Threading;
 
 namespace NetFlanders
 {
-    public enum NetSocketType
-    {
-        Client,
-        Server,
-    }
-
     public class NetSocket
     {
         private readonly UdpClient _socket; //TODO: change this to a native socket to be able to catch socket errors (like Host Unreachable) and handle them
@@ -135,7 +128,7 @@ namespace NetFlanders
 
             var endpoint = new IPEndPoint(address, port);
             Send(endpoint, new NetPacket(NetPacketType.ConnectionRequest, 0));
-
+            
             var resetEvent = new ManualResetEvent(false);
             bool connected = false;
             Action<NetPeer, bool> callback = (peer, accepted) =>
