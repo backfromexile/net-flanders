@@ -38,7 +38,8 @@ namespace NetFlanders
         private readonly ReliableChannel _reliableChannel;
 
         internal event Action<DisconnectReason>? Disconnected;
-
+        internal event Action<NetPeer, bool>? ConnectionResponse;
+        internal event Func<NetPeer, bool>? ConnectionRequested; //TODO: additional data
 
         private NetConfig Config => _socket.Config;
 
@@ -77,6 +78,7 @@ namespace NetFlanders
             SendPing();
         }
 
+
         internal void HandlePacket(NetPacket packet)
         {
             lock(_stateLock)
@@ -86,10 +88,26 @@ namespace NetFlanders
 
             switch (packet.PacketType)
             {
-                case NetPacketType.ConnectionRequest:
                 case NetPacketType.ConnectionAccept:
+                    ConnectionResponse?.Invoke(this, true);
+                    break;
+
                 case NetPacketType.ConnectionReject:
-                    throw new InvalidOperationException();
+                    ConnectionResponse?.Invoke(this, false);
+                    break;
+
+                case NetPacketType.ConnectionRequest:
+                    //TODO: ignore connection requests in client mode
+                    //TODO: let user decide through call
+                    bool? accept = ConnectionRequested?.Invoke(this);
+                    if (accept is null || accept is true)
+                    {
+                        Send(new NetPacket(NetPacketType.ConnectionAccept, 0));
+                    }else
+                    {
+                        Send(new NetPacket(NetPacketType.ConnectionReject, 0));
+                    }
+                    break;
 
                 case NetPacketType.Unreliable:
                     _unreliableChannel.HandlePacket(packet);
