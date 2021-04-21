@@ -1,16 +1,76 @@
-﻿namespace NetFlanders
+﻿using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Diagnostics;
+
+namespace NetFlanders
 {
     internal abstract class SequencedChannel
     {
+        private struct TimedNetPacket
+        {
+            public TimeSpan Time;
+            public NetPacket Packet;
+        }
+        private class NetPacketComparer : IComparer<TimedNetPacket>
+        {
+            public int Compare(TimedNetPacket x, TimedNetPacket y)
+            {
+                return x.Packet.SequenceNumber.CompareTo(y.Packet.SequenceNumber);
+            }
+        }
+
         protected readonly NetPeer Peer;
+
         protected ushort Sequence => _sequence;
         private ushort _sequence;
+        private readonly object _sendLock = new object();
+
+        private readonly SortedSet<TimedNetPacket> _receivedPacketQueue = new SortedSet<TimedNetPacket>(new NetPacketComparer());
+        private readonly object _receivedQueueLock = new object();
+        private readonly Stopwatch _receiveTimer;
 
         protected SequencedChannel(NetPeer peer)
         {
             Peer = peer;
+
+            _receiveTimer = Stopwatch.StartNew();
         }
 
-        internal abstract void HandlePacket(NetPacket packet);
+        protected virtual void OnPacketReceived(NetPacket packet) { }
+
+        internal void HandleReceivedPacket(NetPacket packet)
+        {
+            OnPacketReceived(packet);
+
+            lock (_receivedQueueLock)
+            {
+                var time = _receiveTimer.Elapsed;
+                _receivedPacketQueue.Add(new TimedNetPacket
+                {
+                    Time = time,
+                    Packet = packet,
+                });
+            }
+        }
+
+        internal bool TryPollPacket(out NetPacket packet)
+        {
+            packet = default;
+
+            lock (_receivedQueueLock)
+            {
+                if (_receivedPacketQueue.Count == 0)
+                    return false;
+
+                var first = _receivedPacketQueue.Min;
+                if (_receiveTimer.Elapsed - first.Time < Peer.Socket.Config.PacketBufferTime)
+                    return false;
+
+                packet = first.Packet;
+                _receivedPacketQueue.Remove(first);
+                return true;
+            }
+        }
     }
 }

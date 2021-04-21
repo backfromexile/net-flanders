@@ -2,7 +2,7 @@
 
 namespace NetFlanders
 {
-    public readonly struct NetPacket
+    internal readonly struct NetPacket
     {
         internal static int HeaderSize = sizeof(byte) + sizeof(ushort);
 
@@ -21,5 +21,6 @@ namespace NetFlanders
             SequenceNumber = sequenceNumber;
             Body = body;
         }
+
     }
 }

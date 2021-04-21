@@ -2,13 +2,16 @@
 
 namespace NetFlanders
 {
-    public readonly struct NetConfig
+    public struct NetConfig
     {
-        public readonly TimeSpan Timeout;
+        /// <summary>
+        /// If a peer receives no packets within this time frame, the connection will be closed
+        /// </summary>
+        public TimeSpan Timeout;
 
-        public NetConfig(TimeSpan timeout)
-        {
-            Timeout = timeout;
-        }
+        /// <summary>
+        /// Time to hold received data packets before processing them (useful for interpolation)
+        /// </summary>
+        public TimeSpan PacketBufferTime;
     }
 }

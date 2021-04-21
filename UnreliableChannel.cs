@@ -9,7 +9,7 @@ namespace NetFlanders
         {
         }
 
-        internal override void HandlePacket(NetPacket packet)
+        internal override void OnPacketReceived(NetPacket packet)
         {
             throw new NotImplementedException();
         }

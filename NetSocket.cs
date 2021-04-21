@@ -15,10 +15,13 @@ namespace NetFlanders
         private readonly ConcurrentDictionary<IPEndPoint, NetPeer> _peers = new ConcurrentDictionary<IPEndPoint, NetPeer>();
         private readonly object _peersLock = new object();
 
-        private readonly NetLogger _logger;
+        internal readonly NetLogger Logger;
+        private static NetSerializer _serializer = new NetSerializer();
+        private static object _serializeLock = new object();
 
-        public readonly NetConfig Config;
-
+        private readonly NetConfig _config;
+        public NetConfig Config => _config;
+        private readonly Thread _receiveThread;
 
         public NetSocket(NetSocketType type, NetConfig config) : this(type, 0, config)
         {
@@ -26,17 +29,19 @@ namespace NetFlanders
 
         public NetSocket(NetSocketType type, int port, NetConfig config)
         {
-            _logger = new NetLogger($"[{type}]");
+            Logger = new NetLogger($"[{type}]");
 
-            Config = config;
+            _config = config;
 
             var endpoint = new IPEndPoint(IPAddress.Any, port);
             _socket = new UdpClient(endpoint);
+            _receiveThread = new Thread(ReceiveAsync);
         }
 
         public void Start()
         {
-            ReceiveAsync();
+            //TODO: check for multiple starts
+            _receiveThread.Start();
         }
 
         private void ReceiveAsync()
@@ -74,26 +79,27 @@ namespace NetFlanders
 
             if (data.Length < NetPacket.HeaderSize)
             {
-                _logger.LogWarning($"Received too small packet ({data.Length} bytes) from {endpoint}, ignoring...");
+                Logger.LogWarning($"Received too small packet ({data.Length} bytes) from {endpoint}, ignoring...");
                 return;
             }
 
             var peer = GetOrAddPeer(endpoint);
 
-            //TODO: network byte order and use proper reader type
-            var packetType = (NetPacketType)data[0];
-            var sequence = BitConverter.ToUInt16(data, 1);
+            var deserializer = new NetDeserializer(data);
+            var packetType = deserializer.ReadEnum<NetPacketType>();
+            var sequence = deserializer.ReadUInt16();
             var dataMemory = new ReadOnlyMemory<byte>(data, NetPacket.HeaderSize, data.Length - NetPacket.HeaderSize);
+
             var packet = new NetPacket(packetType, sequence, dataMemory);
 
-            _logger.Log($"Received {packetType} packet ({data.Length} bytes) from {endpoint}");
+            Logger.LogDebug($"Received {packetType} packet ({data.Length} bytes) from {endpoint}");
             peer.HandlePacket(packet);
         }
 
         internal void Send(IPEndPoint endpoint, NetPacket packet)
         {
             byte[] datagram = SerializePacket(packet);
-            _logger.Log($"Sending {datagram.Length} bytes to {endpoint}");
+            Logger.LogDebug($"Sending {datagram.Length} bytes to {endpoint} (sync)");
 
             _socket.Send(datagram, datagram.Length, endpoint);
         }
@@ -101,19 +107,22 @@ namespace NetFlanders
         internal Task SendAsync(IPEndPoint endpoint, NetPacket packet)
         {
             byte[] datagram = SerializePacket(packet);
-            _logger.Log($"Sending {datagram.Length} bytes to {endpoint}");
+            Logger.LogDebug($"Sending {datagram.Length} bytes to {endpoint} (async)");
 
             return _socket.SendAsync(datagram, datagram.Length, endpoint);
         }
 
         private static byte[] SerializePacket(NetPacket packet)
         {
-            //TODO: serialize properly
-            byte[] datagram = new byte[NetPacket.HeaderSize + packet.Body.Length];
-            datagram[0] = (byte)packet.PacketType;
-            Buffer.BlockCopy(BitConverter.GetBytes(packet.SequenceNumber), 0, datagram, 1, sizeof(ushort));
-            packet.Body.CopyTo(new Memory<byte>(datagram, 3, datagram.Length - 3));
-            return datagram;
+            lock (_serializeLock)
+            {
+                _serializer.Reset();
+                _serializer.Write(packet.PacketType);
+                _serializer.Write(packet.SequenceNumber);
+                _serializer.WriteRaw(packet.Body);
+
+                return _serializer.GetBytes();
+            }
         }
 
         public void Update()
@@ -141,6 +150,7 @@ namespace NetFlanders
 
             var endpoint = new IPEndPoint(address, port);
             var peer = GetOrAddPeer(endpoint);
+            peer.State.Apply(NetPeerCommand.RequestConnection);
             peer.Send(new NetPacket(NetPacketType.ConnectionRequest, 0));
 
             var resetEvent = new SemaphoreSlim(0, 1);
@@ -152,19 +162,23 @@ namespace NetFlanders
             });
 
             peer.ConnectionResponse += callback;
-            bool gotResponse = await resetEvent.WaitAsync(Config.Timeout);
+            bool gotResponse = await resetEvent.WaitAsync(_config.Timeout);
             peer.ConnectionResponse -= callback;
 
             if (!gotResponse)
+            {
+                peer.State.Apply(NetPeerCommand.Timeout);
                 return ConnectResult.Timeout;
+            }
 
             if (connected)
             {
-                peer.SetConnected();
+                peer.State.Apply(NetPeerCommand.ConnectionAccepted);
                 return ConnectResult.Connected;
             }
 
             _ = _peers.TryRemove(endpoint, out _);
+            peer.State.Apply(NetPeerCommand.ConnectionRejected);
             return ConnectResult.Rejected;
         }
     }

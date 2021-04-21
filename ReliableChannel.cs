@@ -17,9 +17,9 @@ namespace NetFlanders
             throw new NotImplementedException();
         }
 
-        internal override void HandlePacket(NetPacket packet)
+        protected override void OnPacketReceived(NetPacket packet)
         {
-            throw new NotImplementedException();
+            Peer.Send(new NetPacket(NetPacketType.Ack, packet.SequenceNumber));
         }
     }
 }

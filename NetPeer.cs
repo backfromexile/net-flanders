@@ -5,14 +5,24 @@ using System.Net;
 
 namespace NetFlanders
 {
-    public enum DisconnectReason
+    internal enum NetPeerState
     {
-        Timeout,
-        RemoteDisconnected,
+        Disconnected,
+        ConnectionRequested,
+        Connected,
     }
 
-    internal class NetPeer
+    internal enum NetPeerCommand
     {
+        RequestConnection,
+        ConnectionAccepted,
+        ConnectionRejected,
+        Disconnect,
+        Timeout
+    }
+    internal sealed class NetPeer
+    {
+
         #region ping
         public TimeSpan Ping => new TimeSpan(_roundTripTime.Ticks / (2 * _pingCount));
 
@@ -29,10 +39,15 @@ namespace NetFlanders
         private readonly object _stateLock = new object();
         private TimeSpan _lastPacketTime;
 
-        private bool _connected = false; //TODO: this should be a state machine
+        public readonly StateMachine<NetPeerState, NetPeerCommand> State = new StateMachine<NetPeerState, NetPeerCommand>(NetPeerState.Disconnected)
+            .Add(NetPeerState.Disconnected, NetPeerState.ConnectionRequested, NetPeerCommand.RequestConnection)
+            .Add(NetPeerState.ConnectionRequested, NetPeerState.Connected, NetPeerCommand.ConnectionAccepted)
+            .Add(NetPeerState.ConnectionRequested, NetPeerState.Disconnected, NetPeerCommand.ConnectionRejected)
+            .Add(NetPeerState.ConnectionRequested, NetPeerState.Disconnected, NetPeerCommand.Timeout)
+            .Add(NetPeerState.Connected, NetPeerState.Disconnected, NetPeerCommand.Disconnect);
         #endregion
 
-        private readonly NetSocket _socket;
+        internal readonly NetSocket Socket;
         private readonly IPEndPoint _endpoint;
         private readonly UnreliableChannel _unreliableChannel;
         private readonly ReliableChannel _reliableChannel;
@@ -41,11 +56,9 @@ namespace NetFlanders
         internal event Action<NetPeer, bool>? ConnectionResponse;
         internal event Func<NetPeer, bool>? ConnectionRequested; //TODO: additional data
 
-        private NetConfig Config => _socket.Config;
-
         internal NetPeer(NetSocket socket, IPEndPoint endpoint)
         {
-            _socket = socket;
+            Socket = socket;
             _endpoint = endpoint;
 
             _unreliableChannel = new UnreliableChannel(this);
@@ -53,23 +66,20 @@ namespace NetFlanders
 
             _pingStopwatch.Start();
             _lastPacketStopwatch.Start();
-        }
 
-        internal void SetConnected()
-        {
-            _connected = true;
+            State.Start();
         }
 
         internal void Update()
         {
-            if (!_connected)
+            if (State.State != NetPeerState.Connected)
                 return;
 
             var timeWithoutPacket = _lastPacketStopwatch.Elapsed - _lastPacketTime;
-            if(timeWithoutPacket > Config.Timeout)
+            if (timeWithoutPacket > Socket.Config.Timeout)
             {
-                //TODO: we timed out
-                _connected = false;
+                //we timed out
+                State.Apply(NetPeerCommand.Disconnect);
 
                 Disconnected?.Invoke(DisconnectReason.Timeout);
                 return;
@@ -81,7 +91,7 @@ namespace NetFlanders
 
         internal void HandlePacket(NetPacket packet)
         {
-            lock(_stateLock)
+            lock (_stateLock)
             {
                 _lastPacketTime = _lastPacketStopwatch.Elapsed;
             }
@@ -99,22 +109,26 @@ namespace NetFlanders
                 case NetPacketType.ConnectionRequest:
                     //TODO: ignore connection requests in client mode
                     //TODO: let user decide through call
+                    State.Apply(NetPeerCommand.RequestConnection);
                     bool? accept = ConnectionRequested?.Invoke(this);
                     if (accept is null || accept is true)
                     {
+                        State.Apply(NetPeerCommand.ConnectionAccepted);
                         Send(new NetPacket(NetPacketType.ConnectionAccept, 0));
-                    }else
+                    }
+                    else
                     {
+                        State.Apply(NetPeerCommand.RequestConnection);
                         Send(new NetPacket(NetPacketType.ConnectionReject, 0));
                     }
                     break;
 
                 case NetPacketType.Unreliable:
-                    _unreliableChannel.HandlePacket(packet);
+                    _unreliableChannel.HandleReceivedPacket(packet);
                     return;
 
                 case NetPacketType.Reliable:
-                    _reliableChannel.HandlePacket(packet);
+                    _reliableChannel.HandleReceivedPacket(packet);
                     return;
 
                 case NetPacketType.Ping:
@@ -132,6 +146,8 @@ namespace NetFlanders
                         if (!_pingTimes.TryRemove(seq, out var time))
                             return;
 
+                        Socket.Logger.Log($"{_endpoint}: Still waiting for {_pingTimes.Count} ping packets");
+
                         var now = _pingStopwatch.Elapsed;
                         lock (_pingLock)
                         {
@@ -143,7 +159,7 @@ namespace NetFlanders
 
                 case NetPacketType.Disconnect:
                     {
-                        //TODO: handle disconnect
+                        State.Apply(NetPeerCommand.Disconnect);
 
                         Disconnected?.Invoke(DisconnectReason.RemoteDisconnected);
                         return;
@@ -179,7 +195,7 @@ namespace NetFlanders
 
         internal void Send(NetPacket packet)
         {
-            _socket.Send(_endpoint, packet);
+            Socket.Send(_endpoint, packet);
         }
     }
 }

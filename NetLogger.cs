@@ -41,5 +41,15 @@ namespace NetFlanders
             Console.WriteLine(_prefix + message);
             Console.ForegroundColor = oldColor;
         }
+
+        public void LogDebug(string message)
+        {
+            //LogColored(message, ConsoleColor.Blue);
+        }
+
+        public void LogDInfo(string message)
+        {
+            LogColored(message, ConsoleColor.Cyan);
+        }
     }
 }
