@@ -11,6 +11,8 @@ namespace NetFlanders
         public readonly ushort SequenceNumber;
         public readonly ReadOnlyMemory<byte> Body;
 
+        public int Size => HeaderSize + Body.Length;
+
         public NetPacket(NetPacketType packetType, ushort sequenceNumber) : this(packetType, sequenceNumber, new ReadOnlyMemory<byte>())
         {
         }

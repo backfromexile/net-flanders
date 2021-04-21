@@ -9,7 +9,9 @@ namespace NetFlanders
         private readonly NetSocket _socket;
         private NetPeer? _serverPeer;
 
-        public TimeSpan? Ping => _serverPeer?.Ping;
+        public TimeSpan Ping => _serverPeer?.Ping ?? TimeSpan.Zero;
+
+        public NetStats Stats => _serverPeer?.Stats ?? default;
 
         public event Action<DisconnectReason>? Disconnected;
 

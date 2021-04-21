@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Net;
+using System.Threading;
 
 namespace NetFlanders
 {
@@ -21,8 +22,29 @@ namespace NetFlanders
         Disconnect,
         Timeout
     }
+
+    public struct NetChannelStats
+    {
+        public long SentBytes;
+        public long ReceivedBytes;
+
+        public long SentPackets;
+        public long ReceivedPackets;
+    }
+
+    public struct NetStats
+    {
+        public NetChannelStats Reliable;
+        public NetChannelStats Unreliable;
+        public NetChannelStats Internal;
+
+        public long LostPackets;
+    }
+
     internal sealed class NetPeer
     {
+        public NetStats Stats;
+
         #region ping
         public TimeSpan Ping => _ping;
         private TimeSpan _ping;
@@ -135,6 +157,8 @@ namespace NetFlanders
                     break;
 
                 remove.Add(pair);
+                // track lost ping packets
+                Interlocked.Increment(ref Stats.LostPackets);
             }
 
             lock (_pingLock)
@@ -150,13 +174,13 @@ namespace NetFlanders
         {
             while (_unreliableChannel.TryPollPacket(out var packet))
             {
-                //TODO: 
+                //TODO: poll unreliable packet
                 Socket.Logger.Log($"Polled unreliable packet {packet.SequenceNumber}");
             }
 
             while (_reliableChannel.TryPollPacket(out var packet))
             {
-                //TODO: 
+                //TODO: poll reliable packet
                 Socket.Logger.Log($"Polled reliable packet {packet.SequenceNumber}");
             }
         }
@@ -171,10 +195,16 @@ namespace NetFlanders
             switch (packet.PacketType)
             {
                 case NetPacketType.ConnectionAccept:
+                    Interlocked.Increment(ref Stats.Internal.ReceivedPackets);
+                    Interlocked.Add(ref Stats.Internal.ReceivedBytes, packet.Size);
+
                     ConnectionResponse?.Invoke(this, true);
                     break;
 
                 case NetPacketType.ConnectionReject:
+                    Interlocked.Increment(ref Stats.Internal.ReceivedPackets);
+                    Interlocked.Add(ref Stats.Internal.ReceivedBytes, packet.Size);
+
                     ConnectionResponse?.Invoke(this, false);
                     break;
 
@@ -182,6 +212,9 @@ namespace NetFlanders
                     // ignore connection requests in client mode
                     if (Socket.ClientMode)
                         return;
+
+                    Interlocked.Increment(ref Stats.Internal.ReceivedPackets);
+                    Interlocked.Add(ref Stats.Internal.ReceivedBytes, packet.Size);
 
                     // let user decide through call
                     State.Apply(NetPeerCommand.RequestConnection);
@@ -199,15 +232,24 @@ namespace NetFlanders
                     break;
 
                 case NetPacketType.Unreliable:
+                    Interlocked.Increment(ref Stats.Unreliable.ReceivedPackets);
+                    Interlocked.Add(ref Stats.Unreliable.ReceivedBytes, packet.Size);
+
                     _unreliableChannel.HandleReceivedPacket(packet);
                     return;
 
                 case NetPacketType.Reliable:
+                    Interlocked.Increment(ref Stats.Reliable.ReceivedPackets);
+                    Interlocked.Add(ref Stats.Reliable.ReceivedBytes, packet.Size);
+
                     _reliableChannel.HandleReceivedPacket(packet);
                     return;
 
                 case NetPacketType.Ping:
                     {
+                        Interlocked.Increment(ref Stats.Internal.ReceivedPackets);
+                        Interlocked.Add(ref Stats.Internal.ReceivedBytes, packet.Size);
+
                         var answer = new NetPacket(NetPacketType.Pong, packet.SequenceNumber);
                         Send(answer);
                         return;
@@ -215,9 +257,9 @@ namespace NetFlanders
 
                 case NetPacketType.Pong:
                     {
-                        //TODO: ping should use a sliding window and not be all-time average
-                        //TODO: remove old ping times where the packet was dropped (keep older ones for a short time)
-                        //TODO: 
+                        Interlocked.Increment(ref Stats.Internal.ReceivedPackets);
+                        Interlocked.Add(ref Stats.Internal.ReceivedBytes, packet.Size);
+
                         var seq = packet.SequenceNumber;
                         TimeSpan time;
                         lock (_pingLock)
@@ -243,20 +285,28 @@ namespace NetFlanders
 
                 case NetPacketType.Disconnect:
                     {
-                        State.Apply(NetPeerCommand.Disconnect);
+                        Interlocked.Increment(ref Stats.Internal.ReceivedPackets);
+                        Interlocked.Add(ref Stats.Internal.ReceivedBytes, packet.Size);
 
+                        State.Apply(NetPeerCommand.Disconnect);
                         Disconnected?.Invoke(DisconnectReason.RemoteDisconnected);
                         return;
                     }
 
                 case NetPacketType.Ack:
                     {
+                        Interlocked.Increment(ref Stats.Internal.ReceivedPackets);
+                        Interlocked.Add(ref Stats.Internal.ReceivedBytes, packet.Size);
+
                         _reliableChannel.HandleAck(packet);
                         return;
                     }
 
                 case NetPacketType.Debug:
                     {
+                        Interlocked.Increment(ref Stats.Internal.ReceivedPackets);
+                        Interlocked.Add(ref Stats.Internal.ReceivedBytes, packet.Size);
+
                         //TODO: debug
                         return;
                     }
@@ -278,6 +328,31 @@ namespace NetFlanders
 
         internal void Send(NetPacket packet)
         {
+            switch (packet.PacketType)
+            {
+                case NetPacketType.Unreliable:
+                    Interlocked.Increment(ref Stats.Unreliable.SentPackets);
+                    Interlocked.Add(ref Stats.Unreliable.SentBytes, packet.Size);
+                    break;
+
+                case NetPacketType.Reliable:
+                    Interlocked.Increment(ref Stats.Reliable.SentPackets);
+                    Interlocked.Add(ref Stats.Reliable.SentBytes, packet.Size);
+                    break;
+
+                case NetPacketType.ConnectionRequest:
+                case NetPacketType.ConnectionAccept:
+                case NetPacketType.ConnectionReject:
+                case NetPacketType.Disconnect:
+                case NetPacketType.Ack:
+                case NetPacketType.Ping:
+                case NetPacketType.Pong:
+                case NetPacketType.Debug:
+                    Interlocked.Increment(ref Stats.Internal.SentPackets);
+                    Interlocked.Add(ref Stats.Internal.SentBytes, packet.Size);
+                    break;
+            }
+
             Socket.Send(_endpoint, packet);
         }
 

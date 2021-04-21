@@ -23,5 +23,10 @@ namespace NetFlanders
         /// Constant time added to the resend logic
         /// </summary>
         public TimeSpan ResendTime;
+
+        /// <summary>
+        /// Number of attempts to resend a reliable packet before the connection will be dropped
+        /// </summary>
+        public int ResendAttempts;
     }
 }

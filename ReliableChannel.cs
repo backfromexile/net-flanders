@@ -19,6 +19,7 @@ namespace NetFlanders
 
         private readonly Stopwatch _ackStopwatch = new Stopwatch();
         private readonly SortedDictionary<NetPacket, TimeSpan> _waitingForAck = new SortedDictionary<NetPacket, TimeSpan>(new NetPacketComparer());
+        private readonly ConcurrentDictionary<NetPacket, int> _resendCounter = new ConcurrentDictionary<NetPacket, int>();
         private readonly object _ackLock = new object();
 
         public ReliableChannel(NetPeer peer) : base(peer)
@@ -49,7 +50,17 @@ namespace NetFlanders
                 if (_ackStopwatch.Elapsed - sendTime < Peer.ResendDelay + Peer.Socket.Config.ResendTime)
                     break;
 
-                //TODO: packet loss
+                // packet loss
+                Interlocked.Increment(ref Peer.Stats.LostPackets);
+
+                int resendAttempts = _resendCounter.AddOrUpdate(packet, 1, (_, count) => count + 1);
+                if(resendAttempts > Peer.Socket.Config.ResendAttempts)
+                {
+                    //TODO: invoke Disconnected event
+                    Peer.State.Apply(NetPeerCommand.Timeout);
+                    return;
+                }
+
                 Resend(packet);
             }
         }
