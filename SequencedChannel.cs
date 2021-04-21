@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 
@@ -22,13 +21,13 @@ namespace NetFlanders
 
         protected readonly NetPeer Peer;
 
-        protected ushort Sequence => _sequence;
         private ushort _sequence;
         private readonly object _sendLock = new object();
 
         private readonly SortedSet<TimedNetPacket> _receivedPacketQueue = new SortedSet<TimedNetPacket>(new NetPacketComparer());
         private readonly object _receivedQueueLock = new object();
         private readonly Stopwatch _receiveTimer;
+        private readonly HashSet<ushort> _receivedPackets = new HashSet<ushort>();
 
         protected SequencedChannel(NetPeer peer)
         {
@@ -41,6 +40,12 @@ namespace NetFlanders
 
         internal void HandleReceivedPacket(NetPacket packet)
         {
+            lock(_receivedQueueLock)
+            {
+                if (!_receivedPackets.Add(packet.SequenceNumber))
+                    return;
+            }
+
             OnPacketReceived(packet);
 
             lock (_receivedQueueLock)
@@ -72,5 +77,18 @@ namespace NetFlanders
                 return true;
             }
         }
+
+        internal void Send(byte[] data)
+        {
+            ushort seq;
+            lock (_sendLock)
+            {
+                seq = ++_sequence;
+            }
+
+            SendInternal(seq, data);
+        }
+
+        protected abstract void SendInternal(ushort sequence, byte[] data);
     }
 }

@@ -9,9 +9,15 @@ namespace NetFlanders
         {
         }
 
-        internal override void OnPacketReceived(NetPacket packet)
+        protected override void OnPacketReceived(NetPacket packet)
         {
             throw new NotImplementedException();
+        }
+
+        protected override void SendInternal(ushort sequence, byte[] data)
+        {
+            var packet = new NetPacket(NetPacketType.Reliable, sequence, data);
+            Peer.Send(packet);
         }
     }
 }

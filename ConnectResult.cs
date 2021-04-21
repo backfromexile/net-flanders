@@ -6,5 +6,6 @@
         HostNotFound,
         Timeout,
         Rejected,
+        NotAllowed,
     }
 }

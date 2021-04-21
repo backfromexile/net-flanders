@@ -4,7 +4,7 @@ using System.Text;
 
 namespace NetFlanders
 {
-    internal sealed class NetDeserializer
+    public sealed class NetDeserializer
     {
         private readonly Encoding _encoding = Encoding.UTF8;
         private readonly byte[] _buffer;

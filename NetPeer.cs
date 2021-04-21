@@ -2,6 +2,7 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net;
+using System.Threading;
 
 namespace NetFlanders
 {
@@ -24,7 +25,7 @@ namespace NetFlanders
     {
 
         #region ping
-        public TimeSpan Ping => new TimeSpan(_roundTripTime.Ticks / (2 * _pingCount));
+        public TimeSpan Ping => new TimeSpan(_roundTripTime.Ticks / _pingCount / 2);
 
         private TimeSpan _roundTripTime;
         private int _pingCount;
@@ -51,6 +52,7 @@ namespace NetFlanders
         private readonly IPEndPoint _endpoint;
         private readonly UnreliableChannel _unreliableChannel;
         private readonly ReliableChannel _reliableChannel;
+        internal TimeSpan ResendDelay => new TimeSpan((long)(Ping.Ticks * 2.5));
 
         internal event Action<DisconnectReason>? Disconnected;
         internal event Action<NetPeer, bool>? ConnectionResponse;
@@ -76,18 +78,34 @@ namespace NetFlanders
                 return;
 
             var timeWithoutPacket = _lastPacketStopwatch.Elapsed - _lastPacketTime;
+            //we timed out
             if (timeWithoutPacket > Socket.Config.Timeout)
             {
-                //we timed out
                 State.Apply(NetPeerCommand.Disconnect);
-
                 Disconnected?.Invoke(DisconnectReason.Timeout);
                 return;
             }
 
+            _reliableChannel.Update();
             SendPing();
+
+            PollPackets();
         }
 
+        private void PollPackets()
+        {
+            while (_unreliableChannel.TryPollPacket(out var packet))
+            {
+                //TODO: 
+                Socket.Logger.Log($"Polled unreliable packet {packet.SequenceNumber}");
+            }
+
+            while (_reliableChannel.TryPollPacket(out var packet))
+            {
+                //TODO: 
+                Socket.Logger.Log($"Polled reliable packet {packet.SequenceNumber}");
+            }
+        }
 
         internal void HandlePacket(NetPacket packet)
         {
@@ -107,18 +125,21 @@ namespace NetFlanders
                     break;
 
                 case NetPacketType.ConnectionRequest:
-                    //TODO: ignore connection requests in client mode
-                    //TODO: let user decide through call
+                    // ignore connection requests in client mode
+                    if (Socket.ClientMode)
+                        return;
+
+                    // let user decide through call
                     State.Apply(NetPeerCommand.RequestConnection);
                     bool? accept = ConnectionRequested?.Invoke(this);
-                    if (accept is null || accept is true)
+                    if (accept is true)
                     {
                         State.Apply(NetPeerCommand.ConnectionAccepted);
                         Send(new NetPacket(NetPacketType.ConnectionAccept, 0));
                     }
                     else
                     {
-                        State.Apply(NetPeerCommand.RequestConnection);
+                        State.Apply(NetPeerCommand.ConnectionRejected);
                         Send(new NetPacket(NetPacketType.ConnectionReject, 0));
                     }
                     break;
@@ -142,11 +163,12 @@ namespace NetFlanders
                     {
                         //TODO: ping should use a sliding window and not be all-time average
                         //TODO: remove old ping times where the packet was dropped (keep older ones for a short time)
+                        //TODO: 
                         var seq = packet.SequenceNumber;
                         if (!_pingTimes.TryRemove(seq, out var time))
                             return;
 
-                        Socket.Logger.Log($"{_endpoint}: Still waiting for {_pingTimes.Count} ping packets");
+                        Socket.Logger.LogDebug($"{_endpoint}: Still waiting for {_pingTimes.Count} ping packets");
 
                         var now = _pingStopwatch.Elapsed;
                         lock (_pingLock)
@@ -196,6 +218,16 @@ namespace NetFlanders
         internal void Send(NetPacket packet)
         {
             Socket.Send(_endpoint, packet);
+        }
+
+        internal void SendReliable(byte[] data)
+        {
+            _reliableChannel.Send(data);
+        }
+
+        internal void SendUnreliable(byte[] data)
+        {
+            _unreliableChannel.Send(data);
         }
     }
 }

@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
@@ -8,11 +9,14 @@ using System.Threading.Tasks;
 
 namespace NetFlanders
 {
-    public class NetSocket
+
+    internal sealed class NetSocket
     {
         private readonly UdpClient _socket; //TODO: change this to a native socket to be able to catch socket errors (like Host Unreachable) and handle them
 
         private readonly ConcurrentDictionary<IPEndPoint, NetPeer> _peers = new ConcurrentDictionary<IPEndPoint, NetPeer>();
+        internal IReadOnlyCollection<NetPeer> ConnectedPeers => _peers.Values.Where(peer => peer.State.State == NetPeerState.Connected).ToList();
+
         private readonly object _peersLock = new object();
 
         internal readonly NetLogger Logger;
@@ -22,14 +26,18 @@ namespace NetFlanders
         private readonly NetConfig _config;
         public NetConfig Config => _config;
         private readonly Thread _receiveThread;
+        internal readonly bool ClientMode;
 
-        public NetSocket(NetSocketType type, NetConfig config) : this(type, 0, config)
+        internal event Func<NetPeer, bool>? ConnectionRequest;
+
+        public NetSocket(bool clientMode, NetConfig config) : this(clientMode, 0, config)
         {
         }
 
-        public NetSocket(NetSocketType type, int port, NetConfig config)
+        public NetSocket(bool clientMode, int port, NetConfig config)
         {
-            Logger = new NetLogger($"[{type}]");
+            Logger = new NetLogger($"[{(clientMode ? "Client" : "Server")}]");
+            ClientMode = clientMode;
 
             _config = config;
 
@@ -59,16 +67,15 @@ namespace NetFlanders
                     peer = new NetPeer(this, endpoint);
                     _peers.TryAdd(endpoint, peer);
 
-                    peer.ConnectionRequested += OnConnectionRequesteed;
+                    peer.ConnectionRequested += OnConnectionRequested;
                 }
             }
             return peer;
         }
 
-        private bool OnConnectionRequesteed(NetPeer arg)
+        private bool OnConnectionRequested(NetPeer peer)
         {
-            //TODO: allow connection request?
-            return true;
+            return ConnectionRequest?.Invoke(peer) is true;
         }
 
         private void OnReceive(IAsyncResult asyncResult)
@@ -137,7 +144,10 @@ namespace NetFlanders
 
         public async Task<ConnectResult> ConnectAsync(string host, int port)
         {
-            //TODO: don't allow sending connection requests in server mode
+            // don't allow sending connection requests in server mode
+            if (!ClientMode)
+                return ConnectResult.NotAllowed;
+
 
             var addresses = Dns.GetHostAddresses(host);
             if (addresses.Length == 0)

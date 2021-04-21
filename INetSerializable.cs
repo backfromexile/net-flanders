@@ -1,6 +1,6 @@
 ﻿namespace NetFlanders
 {
-    internal interface INetSerializable
+    public interface INetSerializable
     {
         void Serialize(NetSerializer serializer);
         void Deserialize(NetDeserializer serializer);
