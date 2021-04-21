@@ -46,9 +46,10 @@ namespace NetFlanders
             foreach(var (packet, sendTime) in waiting)
             {
                 // we can safely assume that packet with lower sequence number were sent earlier
-                if (_ackStopwatch.Elapsed - sendTime < Peer.ResendDelay)
+                if (_ackStopwatch.Elapsed - sendTime < Peer.ResendDelay + Peer.Socket.Config.ResendTime)
                     break;
 
+                //TODO: packet loss
                 Resend(packet);
             }
         }

@@ -13,5 +13,15 @@ namespace NetFlanders
         /// Time to hold received data packets before processing them (useful for interpolation)
         /// </summary>
         public TimeSpan PacketBufferTime;
+
+        /// <summary>
+        /// Sliding Ping Window
+        /// </summary>
+        public TimeSpan PingWindow;
+
+        /// <summary>
+        /// Constant time added to the resend logic
+        /// </summary>
+        public TimeSpan ResendTime;
     }
 }

@@ -1,8 +1,8 @@
 ﻿using System;
-using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Net;
-using System.Threading;
 
 namespace NetFlanders
 {
@@ -23,16 +23,15 @@ namespace NetFlanders
     }
     internal sealed class NetPeer
     {
-
         #region ping
-        public TimeSpan Ping => new TimeSpan(_roundTripTime.Ticks / _pingCount / 2);
-
+        public TimeSpan Ping => _ping;
+        private TimeSpan _ping;
         private TimeSpan _roundTripTime;
-        private int _pingCount;
         private ushort _pingSequence;
         private readonly Stopwatch _pingStopwatch = new Stopwatch();
-        private readonly ConcurrentDictionary<ushort, TimeSpan> _pingTimes = new ConcurrentDictionary<ushort, TimeSpan>();
+        private readonly SortedDictionary<ushort, TimeSpan> _pingTimes = new SortedDictionary<ushort, TimeSpan>();
         private readonly object _pingLock = new object();
+        private readonly Queue<(TimeSpan received, TimeSpan ping)> _pings = new Queue<(TimeSpan received, TimeSpan ping)>(1000);
         #endregion
 
         #region common state
@@ -87,9 +86,64 @@ namespace NetFlanders
             }
 
             _reliableChannel.Update();
+
+            CleanUpOldPings();
+            UpdatePingSlidingWindow();
             SendPing();
 
             PollPackets();
+        }
+
+        private void UpdatePingSlidingWindow()
+        {
+            lock (_pingLock)
+            {
+                var now = _pingStopwatch.Elapsed;
+                while (_pings.Count > 0)
+                {
+                    var (time, ping) = _pings.Peek();
+                    if (now - time < Socket.Config.PingWindow)
+                        break;
+
+                    _pings.Dequeue();
+                    _roundTripTime -= ping;
+                }
+
+                int count = _pings.Count;
+                if (count == 0)
+                {
+                    _ping = TimeSpan.Zero;
+                    return;
+                }
+
+                _ping = new TimeSpan(_roundTripTime.Ticks / count / 2);
+            }
+        }
+
+        private void CleanUpOldPings()
+        {
+            List<KeyValuePair<ushort, TimeSpan>> pingTimes;
+            lock (_pingLock)
+            {
+                pingTimes = _pingTimes.ToList();
+            }
+
+            var remove = new List<KeyValuePair<ushort, TimeSpan>>();
+            foreach (var pair in pingTimes)
+            {
+                if (_pingStopwatch.Elapsed - pair.Value < Socket.Config.PingWindow)
+                    break;
+
+                remove.Add(pair);
+            }
+
+            lock (_pingLock)
+            {
+                foreach (var (seq, _) in remove)
+                {
+                    _pingTimes.Remove(seq);
+                }
+            }
         }
 
         private void PollPackets()
@@ -165,16 +219,24 @@ namespace NetFlanders
                         //TODO: remove old ping times where the packet was dropped (keep older ones for a short time)
                         //TODO: 
                         var seq = packet.SequenceNumber;
-                        if (!_pingTimes.TryRemove(seq, out var time))
-                            return;
+                        TimeSpan time;
+                        lock (_pingLock)
+                        {
+                            if (!_pingTimes.TryGetValue(seq, out time))
+                                return;
+
+                            _pingTimes.Remove(seq);
+                        }
 
                         Socket.Logger.LogDebug($"{_endpoint}: Still waiting for {_pingTimes.Count} ping packets");
 
                         var now = _pingStopwatch.Elapsed;
                         lock (_pingLock)
                         {
-                            _roundTripTime += (now - time);
-                            _pingCount++;
+                            var ping = now - time;
+                            _roundTripTime += ping;
+
+                            _pings.Enqueue((now, ping));
                         }
                         return;
                     }
@@ -203,14 +265,13 @@ namespace NetFlanders
 
         private void SendPing()
         {
+            var time = _pingStopwatch.Elapsed;
             ushort seq;
             lock (_pingLock)
             {
                 seq = ++_pingSequence;
+                _pingTimes.Add(seq, time);
             }
-
-            var time = _pingStopwatch.Elapsed;
-            _pingTimes.TryAdd(seq, time);
 
             Send(new NetPacket(NetPacketType.Ping, seq));
         }

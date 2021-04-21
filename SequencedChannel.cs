@@ -46,6 +46,8 @@ namespace NetFlanders
                     return;
             }
 
+            //TODO: reliable channel: check if sequence number matches previous sequence + 1
+            //TODO: unreliable channel: check if sequence number > previous sequence
             OnPacketReceived(packet);
 
             lock (_receivedQueueLock)
@@ -61,6 +63,8 @@ namespace NetFlanders
 
         internal bool TryPollPacket(out NetPacket packet)
         {
+            //TODO: reliable channel: don't allow polling if we are still waiting for a reliable packet
+            //TODO: unreliable channel: track skipped(=lost) packets
             packet = default;
 
             lock (_receivedQueueLock)
