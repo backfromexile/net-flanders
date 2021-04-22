@@ -11,7 +11,6 @@ namespace NetFlanders
 {
     internal sealed class NetSocket
     {
-        private readonly Socket _testSocket;
         private readonly UdpClient _socket; //TODO: change this to a native socket to be able to catch socket errors (like Host Unreachable) and handle them
 
         private readonly ConcurrentDictionary<IPEndPoint, NetPeer> _peers = new ConcurrentDictionary<IPEndPoint, NetPeer>();
@@ -85,6 +84,7 @@ namespace NetFlanders
 
         private void OnReceive(IAsyncResult asyncResult)
         {
+            IPEndPoint endpoint = null!;
             byte[] data = _socket.EndReceive(asyncResult, ref endpoint);
             ReceiveAsync();
 
