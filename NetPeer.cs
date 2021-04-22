@@ -7,41 +7,7 @@ using System.Threading;
 
 namespace NetFlanders
 {
-    internal enum NetPeerState
-    {
-        Disconnected,
-        ConnectionRequested,
-        Connected,
-    }
-
-    internal enum NetPeerCommand
-    {
-        RequestConnection,
-        ConnectionAccepted,
-        ConnectionRejected,
-        Disconnect,
-        Timeout
-    }
-
-    public struct NetChannelStats
-    {
-        public long SentBytes;
-        public long ReceivedBytes;
-
-        public long SentPackets;
-        public long ReceivedPackets;
-    }
-
-    public struct NetStats
-    {
-        public NetChannelStats Reliable;
-        public NetChannelStats Unreliable;
-        public NetChannelStats Internal;
-
-        public long LostPackets;
-    }
-
-    internal sealed class NetPeer
+    public sealed class NetPeer
     {
         public NetStats Stats;
 
@@ -61,16 +27,18 @@ namespace NetFlanders
         private readonly object _stateLock = new object();
         private TimeSpan _lastPacketTime;
 
-        public readonly StateMachine<NetPeerState, NetPeerCommand> State = new StateMachine<NetPeerState, NetPeerCommand>(NetPeerState.Disconnected)
+        internal readonly StateMachine<NetPeerState, NetPeerCommand> StateMachine = new StateMachine<NetPeerState, NetPeerCommand>(NetPeerState.Disconnected)
             .Add(NetPeerState.Disconnected, NetPeerState.ConnectionRequested, NetPeerCommand.RequestConnection)
             .Add(NetPeerState.ConnectionRequested, NetPeerState.Connected, NetPeerCommand.ConnectionAccepted)
             .Add(NetPeerState.ConnectionRequested, NetPeerState.Disconnected, NetPeerCommand.ConnectionRejected)
             .Add(NetPeerState.ConnectionRequested, NetPeerState.Disconnected, NetPeerCommand.Timeout)
             .Add(NetPeerState.Connected, NetPeerState.Disconnected, NetPeerCommand.Disconnect);
+
+        public NetPeerState State => StateMachine.State;
         #endregion
 
         internal readonly NetSocket Socket;
-        private readonly IPEndPoint _endpoint;
+        public readonly IPEndPoint Endpoint;
         private readonly UnreliableChannel _unreliableChannel;
         private readonly ReliableChannel _reliableChannel;
         internal TimeSpan ResendDelay => new TimeSpan((long)(Ping.Ticks * 2.5));
@@ -79,10 +47,12 @@ namespace NetFlanders
         internal event Action<NetPeer, bool>? ConnectionResponse;
         internal event Func<NetPeer, bool>? ConnectionRequested; //TODO: additional data
 
+        public event Action<NetPeer, NetDeserializer, bool>? MessageReceived;
+
         internal NetPeer(NetSocket socket, IPEndPoint endpoint)
         {
             Socket = socket;
-            _endpoint = endpoint;
+            Endpoint = endpoint;
 
             _unreliableChannel = new UnreliableChannel(this);
             _reliableChannel = new ReliableChannel(this);
@@ -90,19 +60,19 @@ namespace NetFlanders
             _pingStopwatch.Start();
             _lastPacketStopwatch.Start();
 
-            State.Start();
+            StateMachine.Start();
         }
 
         internal void Update()
         {
-            if (State.State != NetPeerState.Connected)
+            if (StateMachine.State != NetPeerState.Connected)
                 return;
 
             var timeWithoutPacket = _lastPacketStopwatch.Elapsed - _lastPacketTime;
             //we timed out
             if (timeWithoutPacket > Socket.Config.Timeout)
             {
-                State.Apply(NetPeerCommand.Disconnect);
+                StateMachine.Apply(NetPeerCommand.Disconnect);
                 Disconnected?.Invoke(DisconnectReason.Timeout);
                 return;
             }
@@ -174,14 +144,18 @@ namespace NetFlanders
         {
             while (_unreliableChannel.TryPollPacket(out var packet))
             {
-                //TODO: poll unreliable packet
-                Socket.Logger.Log($"Polled unreliable packet {packet.SequenceNumber}");
+                var deserializer = new NetDeserializer(packet.Body);
+                MessageReceived?.Invoke(this, deserializer, false);
+
+                Socket.Logger.LogDebug($"Polled unreliable packet {packet.SequenceNumber}");
             }
 
             while (_reliableChannel.TryPollPacket(out var packet))
             {
-                //TODO: poll reliable packet
-                Socket.Logger.Log($"Polled reliable packet {packet.SequenceNumber}");
+                var deserializer = new NetDeserializer(packet.Body);
+                MessageReceived?.Invoke(this, deserializer, true);
+
+                Socket.Logger.LogDebug($"Polled reliable packet {packet.SequenceNumber}");
             }
         }
 
@@ -217,16 +191,16 @@ namespace NetFlanders
                     Interlocked.Add(ref Stats.Internal.ReceivedBytes, packet.Size);
 
                     // let user decide through call
-                    State.Apply(NetPeerCommand.RequestConnection);
+                    StateMachine.Apply(NetPeerCommand.RequestConnection);
                     bool? accept = ConnectionRequested?.Invoke(this);
                     if (accept is true)
                     {
-                        State.Apply(NetPeerCommand.ConnectionAccepted);
+                        StateMachine.Apply(NetPeerCommand.ConnectionAccepted);
                         Send(new NetPacket(NetPacketType.ConnectionAccept, 0));
                     }
                     else
                     {
-                        State.Apply(NetPeerCommand.ConnectionRejected);
+                        StateMachine.Apply(NetPeerCommand.ConnectionRejected);
                         Send(new NetPacket(NetPacketType.ConnectionReject, 0));
                     }
                     break;
@@ -270,7 +244,7 @@ namespace NetFlanders
                             _pingTimes.Remove(seq);
                         }
 
-                        Socket.Logger.LogDebug($"{_endpoint}: Still waiting for {_pingTimes.Count} ping packets");
+                        Socket.Logger.LogDebug($"{Endpoint}: Still waiting for {_pingTimes.Count} ping packets");
 
                         var now = _pingStopwatch.Elapsed;
                         lock (_pingLock)
@@ -288,7 +262,7 @@ namespace NetFlanders
                         Interlocked.Increment(ref Stats.Internal.ReceivedPackets);
                         Interlocked.Add(ref Stats.Internal.ReceivedBytes, packet.Size);
 
-                        State.Apply(NetPeerCommand.Disconnect);
+                        StateMachine.Apply(NetPeerCommand.Disconnect);
                         Disconnected?.Invoke(DisconnectReason.RemoteDisconnected);
                         return;
                     }
@@ -353,7 +327,7 @@ namespace NetFlanders
                     break;
             }
 
-            Socket.Send(_endpoint, packet);
+            Socket.Send(Endpoint, packet);
         }
 
         internal void SendReliable(byte[] data)

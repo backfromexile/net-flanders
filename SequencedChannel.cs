@@ -29,6 +29,9 @@ namespace NetFlanders
         private readonly Stopwatch _receiveTimer;
         private readonly HashSet<ushort> _receivedPackets = new HashSet<ushort>();
 
+        private ushort _lastSequence;
+        protected ushort LastPolledSequence => _lastSequence;
+
         protected SequencedChannel(NetPeer peer)
         {
             Peer = peer;
@@ -42,17 +45,17 @@ namespace NetFlanders
         {
             lock(_receivedQueueLock)
             {
-                if (!_receivedPackets.Add(packet.SequenceNumber))
+                // skip if a packet with a higher sequence number was already polled
+                if (_lastSequence > packet.SequenceNumber)
                     return;
             }
 
-            //TODO: reliable channel: check if sequence number matches previous sequence + 1
-            //TODO: unreliable channel: check if sequence number > previous sequence
             OnPacketReceived(packet);
 
             lock (_receivedQueueLock)
             {
                 var time = _receiveTimer.Elapsed;
+                // also skips duplicates because of the provided comparer
                 _receivedPacketQueue.Add(new TimedNetPacket
                 {
                     Time = time,
@@ -63,8 +66,6 @@ namespace NetFlanders
 
         internal bool TryPollPacket(out NetPacket packet)
         {
-            //TODO: reliable channel: don't allow polling if we are still waiting for a reliable packet
-            //TODO: unreliable channel: track skipped(=lost) packets
             packet = default;
 
             lock (_receivedQueueLock)
@@ -77,10 +78,16 @@ namespace NetFlanders
                     return false;
 
                 packet = first.Packet;
-                _receivedPacketQueue.Remove(first);
+                if (OnPollPacket(packet))
+                {
+                    _receivedPacketQueue.Remove(first);
+                    _lastSequence = first.Packet.SequenceNumber;
+                }
                 return true;
             }
         }
+
+        protected abstract bool OnPollPacket(NetPacket packet);
 
         internal void Send(byte[] data)
         {

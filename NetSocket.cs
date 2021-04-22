@@ -9,13 +9,13 @@ using System.Threading.Tasks;
 
 namespace NetFlanders
 {
-
     internal sealed class NetSocket
     {
+        private readonly Socket _testSocket;
         private readonly UdpClient _socket; //TODO: change this to a native socket to be able to catch socket errors (like Host Unreachable) and handle them
 
         private readonly ConcurrentDictionary<IPEndPoint, NetPeer> _peers = new ConcurrentDictionary<IPEndPoint, NetPeer>();
-        internal IReadOnlyCollection<NetPeer> ConnectedPeers => _peers.Values.Where(peer => peer.State.State == NetPeerState.Connected).ToList();
+        internal IReadOnlyCollection<NetPeer> ConnectedPeers => _peers.Values.Where(peer => peer.StateMachine.State == NetPeerState.Connected).ToList();
 
         private readonly object _peersLock = new object();
 
@@ -29,6 +29,8 @@ namespace NetFlanders
         internal readonly bool ClientMode;
 
         internal event Func<NetPeer, bool>? ConnectionRequest;
+
+        private bool _started;
 
         public NetSocket(bool clientMode, NetConfig config) : this(clientMode, 0, config)
         {
@@ -48,13 +50,16 @@ namespace NetFlanders
 
         public void Start()
         {
-            //TODO: check for multiple starts
+            if (_started)
+                throw new InvalidOperationException();
+
+            _started = true;
             _receiveThread.Start();
         }
 
         private void ReceiveAsync()
         {
-            _socket.BeginReceive(OnReceive, null);
+            _ = _socket.BeginReceive(OnReceive, null);
         }
 
         private NetPeer GetOrAddPeer(IPEndPoint endpoint)
@@ -80,7 +85,6 @@ namespace NetFlanders
 
         private void OnReceive(IAsyncResult asyncResult)
         {
-            IPEndPoint? endpoint = null;
             byte[] data = _socket.EndReceive(asyncResult, ref endpoint);
             ReceiveAsync();
 
@@ -138,8 +142,6 @@ namespace NetFlanders
             {
                 peer.Update();
             }
-
-            //TODO: poll queued packets from the peers
         }
 
         public async Task<ConnectResult> ConnectAsync(string host, int port)
@@ -160,7 +162,7 @@ namespace NetFlanders
 
             var endpoint = new IPEndPoint(address, port);
             var peer = GetOrAddPeer(endpoint);
-            peer.State.Apply(NetPeerCommand.RequestConnection);
+            peer.StateMachine.Apply(NetPeerCommand.RequestConnection);
             peer.Send(new NetPacket(NetPacketType.ConnectionRequest, 0));
 
             var resetEvent = new SemaphoreSlim(0, 1);
@@ -177,18 +179,18 @@ namespace NetFlanders
 
             if (!gotResponse)
             {
-                peer.State.Apply(NetPeerCommand.Timeout);
+                peer.StateMachine.Apply(NetPeerCommand.Timeout);
                 return ConnectResult.Timeout;
             }
 
             if (connected)
             {
-                peer.State.Apply(NetPeerCommand.ConnectionAccepted);
+                peer.StateMachine.Apply(NetPeerCommand.ConnectionAccepted);
                 return ConnectResult.Connected;
             }
 
             _ = _peers.TryRemove(endpoint, out _);
-            peer.State.Apply(NetPeerCommand.ConnectionRejected);
+            peer.StateMachine.Apply(NetPeerCommand.ConnectionRejected);
             return ConnectResult.Rejected;
         }
     }

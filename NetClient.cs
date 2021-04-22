@@ -7,13 +7,7 @@ namespace NetFlanders
     public sealed class NetClient
     {
         private readonly NetSocket _socket;
-        private NetPeer? _serverPeer;
-
-        public TimeSpan Ping => _serverPeer?.Ping ?? TimeSpan.Zero;
-
-        public NetStats Stats => _serverPeer?.Stats ?? default;
-
-        public event Action<DisconnectReason>? Disconnected;
+        public NetPeer? ServerPeer { get; private set; }
 
         public NetClient(NetConfig config)
         {
@@ -27,8 +21,8 @@ namespace NetFlanders
             var result = await _socket.ConnectAsync(host, port);
             if (result == ConnectResult.Connected)
             {
-                _serverPeer = _socket.ConnectedPeers.Single();
-                _serverPeer.Disconnected += OnDisconnected;
+                ServerPeer = _socket.ConnectedPeers.Single();
+                ServerPeer.Disconnected += OnDisconnected;
             }
 
             return result;
@@ -36,24 +30,22 @@ namespace NetFlanders
 
         private void OnDisconnected(DisconnectReason reason)
         {
-            _serverPeer = null;
-
-            Disconnected?.Invoke(reason);
+            ServerPeer = null;
         }
 
         public void Send(NetSerializer serializer, bool reliable)
         {
-            if (_serverPeer is null)
+            if (ServerPeer is null)
                 throw new InvalidOperationException();
 
             var data = serializer.GetBytes();
             if (reliable)
             {
-                _serverPeer.SendReliable(data);
+                ServerPeer.SendReliable(data);
             }
             else
             {
-                _serverPeer.SendUnreliable(data);
+                ServerPeer.SendUnreliable(data);
             }
         }
     }

@@ -35,6 +35,8 @@ namespace NetFlanders
 
         private void LogColored(string message, ConsoleColor color)
         {
+            return;
+
             var oldColor = Console.ForegroundColor;
 
             Console.ForegroundColor = color;
@@ -44,7 +46,7 @@ namespace NetFlanders
 
         public void LogDebug(string message)
         {
-            //LogColored(message, ConsoleColor.Blue);
+            LogColored(message, ConsoleColor.Blue);
         }
 
         public void LogDInfo(string message)

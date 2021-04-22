@@ -22,6 +22,7 @@ namespace NetFlanders
         private readonly ConcurrentDictionary<NetPacket, int> _resendCounter = new ConcurrentDictionary<NetPacket, int>();
         private readonly object _ackLock = new object();
 
+
         public ReliableChannel(NetPeer peer) : base(peer)
         {
             _ackStopwatch.Start();
@@ -57,7 +58,7 @@ namespace NetFlanders
                 if(resendAttempts > Peer.Socket.Config.ResendAttempts)
                 {
                     //TODO: invoke Disconnected event
-                    Peer.State.Apply(NetPeerCommand.Timeout);
+                    Peer.StateMachine.Apply(NetPeerCommand.Timeout);
                     return;
                 }
 
@@ -95,6 +96,12 @@ namespace NetFlanders
 
             Peer.Socket.Logger.Log($"Sending reliable packet {packet.SequenceNumber}");
             Peer.Send(packet);
+        }
+
+        protected override bool OnPollPacket(NetPacket packet)
+        {
+            // don't allow polling if we are still waiting for a reliable packet
+            return LastPolledSequence + 1 == packet.SequenceNumber;
         }
     }
 }

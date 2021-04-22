@@ -11,11 +11,15 @@ namespace NetFlanders
         public int Size => _buffer.Length;
         private int _position;
 
-        public NetDeserializer(byte[] data)
+        public NetDeserializer(byte[] data) : this(new ReadOnlyMemory<byte>(data))
+        {
+        }
+
+        public NetDeserializer(ReadOnlyMemory<byte> data)
         {
             // we don't want to hold the reference to the array in case someone changes values
             _buffer = new byte[data.Length];
-            Buffer.BlockCopy(data, 0, _buffer, 0, data.Length);
+            data.CopyTo(_buffer);
         }
 
         public byte ReadByte()
