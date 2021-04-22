@@ -6,6 +6,10 @@
         HostNotFound,
         Timeout,
         Rejected,
-        NotAllowed,
+
+        /// <summary>
+        /// A socket error occured
+        /// </summary>
+        Error,
     }
 }

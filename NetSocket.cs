@@ -28,6 +28,8 @@ namespace NetFlanders
         internal readonly bool ClientMode;
 
         internal event Func<NetPeer, bool>? ConnectionRequest;
+        internal event Action<NetPeer>? PeerConnected;
+        internal event Action<NetPeer, DisconnectReason>? PeerDisconnected;
 
         private bool _started;
 
@@ -42,8 +44,11 @@ namespace NetFlanders
 
             _config = config;
 
-            var endpoint = new IPEndPoint(IPAddress.Any, port);
-            _socket = new UdpClient(endpoint);
+            _socket = new UdpClient(AddressFamily.InterNetworkV6);
+            _socket.Client.DualMode = true; // for both IPv4 and IPv6 to work
+            var endpoint = new IPEndPoint(IPAddress.IPv6Any, port);
+            _socket.Client.Bind(endpoint);
+
             _receiveThread = new Thread(ReceiveAsync);
         }
 
@@ -72,9 +77,24 @@ namespace NetFlanders
                     _peers.TryAdd(endpoint, peer);
 
                     peer.ConnectionRequested += OnConnectionRequested;
+                    peer.ConnectionResponse += OnPeerConnectionResponse;
+                    peer.Disconnected += OnPeerDisconnected;
                 }
             }
             return peer;
+        }
+
+        private void OnPeerDisconnected(NetPeer peer, DisconnectReason reason)
+        {
+            PeerDisconnected?.Invoke(peer, reason);
+        }
+
+        private void OnPeerConnectionResponse(NetPeer peer, bool accepted)
+        {
+            if (accepted)
+            {
+                PeerConnected?.Invoke(peer);
+            }
         }
 
         private bool OnConnectionRequested(NetPeer peer)
@@ -85,7 +105,7 @@ namespace NetFlanders
         private void OnReceive(IAsyncResult asyncResult)
         {
             IPEndPoint endpoint = null!;
-            byte[] data = _socket.EndReceive(asyncResult, ref endpoint);
+            byte[] data = _socket.EndReceive(asyncResult, ref endpoint); //TODO: throws exception when remote socket closes
             ReceiveAsync();
 
             if (data.Length < NetPacket.HeaderSize)
@@ -148,7 +168,7 @@ namespace NetFlanders
         {
             // don't allow sending connection requests in server mode
             if (!ClientMode)
-                return ConnectResult.NotAllowed;
+                throw new InvalidOperationException();
 
 
             var addresses = Dns.GetHostAddresses(host);
@@ -163,7 +183,15 @@ namespace NetFlanders
             var endpoint = new IPEndPoint(address, port);
             var peer = GetOrAddPeer(endpoint);
             peer.StateMachine.Apply(NetPeerCommand.RequestConnection);
-            peer.Send(new NetPacket(NetPacketType.ConnectionRequest, 0));
+
+            try
+            {
+                peer.Send(new NetPacket(NetPacketType.ConnectionRequest, 0));
+            }
+            catch (SocketException ex)
+            {
+                return ConnectResult.Error;
+            }
 
             var resetEvent = new SemaphoreSlim(0, 1);
             bool connected = false;

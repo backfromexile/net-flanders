@@ -43,7 +43,7 @@ namespace NetFlanders
         private readonly ReliableChannel _reliableChannel;
         internal TimeSpan ResendDelay => new TimeSpan((long)(Ping.Ticks * 2.5));
 
-        internal event Action<DisconnectReason>? Disconnected;
+        internal event Action<NetPeer, DisconnectReason>? Disconnected;
         internal event Action<NetPeer, bool>? ConnectionResponse;
         internal event Func<NetPeer, bool>? ConnectionRequested; //TODO: additional data
 
@@ -73,7 +73,7 @@ namespace NetFlanders
             if (timeWithoutPacket > Socket.Config.Timeout)
             {
                 StateMachine.Apply(NetPeerCommand.Disconnect);
-                Disconnected?.Invoke(DisconnectReason.Timeout);
+                Disconnected?.Invoke(this, DisconnectReason.Timeout);
                 return;
             }
 
@@ -195,11 +195,13 @@ namespace NetFlanders
                     bool? accept = ConnectionRequested?.Invoke(this);
                     if (accept is true)
                     {
+                        ConnectionResponse?.Invoke(this, true);
                         StateMachine.Apply(NetPeerCommand.ConnectionAccepted);
                         Send(new NetPacket(NetPacketType.ConnectionAccept, 0));
                     }
                     else
                     {
+                        ConnectionResponse?.Invoke(this, false);
                         StateMachine.Apply(NetPeerCommand.ConnectionRejected);
                         Send(new NetPacket(NetPacketType.ConnectionReject, 0));
                     }
@@ -263,7 +265,7 @@ namespace NetFlanders
                         Interlocked.Add(ref Stats.Internal.ReceivedBytes, packet.Size);
 
                         StateMachine.Apply(NetPeerCommand.Disconnect);
-                        Disconnected?.Invoke(DisconnectReason.RemoteDisconnected);
+                        Disconnected?.Invoke(this, DisconnectReason.RemoteDisconnected);
                         return;
                     }
 

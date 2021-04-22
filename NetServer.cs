@@ -7,9 +7,8 @@ namespace NetFlanders
     {
         private readonly NetSocket _socket;
 
-        //TODO: these events don't do shit right now
         public event Action<NetPeer>? PeerConnected;
-        public event Action<NetPeer>? PeerDisconnected;
+        public event Action<NetPeer, DisconnectReason>? PeerDisconnected;
 
         public IReadOnlyCollection<NetPeer> ConnectedPeers => _socket.ConnectedPeers;
 
@@ -17,6 +16,19 @@ namespace NetFlanders
         {
             _socket = new NetSocket(false, port, config);
             _socket.ConnectionRequest += OnConnectionRequest;
+
+            _socket.PeerConnected += OnPeerConnected;
+            _socket.PeerDisconnected += OnPeerDisconnected;
+        }
+
+        private void OnPeerDisconnected(NetPeer peer, DisconnectReason reason)
+        {
+            PeerDisconnected?.Invoke(peer, reason);
+        }
+
+        private void OnPeerConnected(NetPeer peer)
+        {
+            PeerConnected?.Invoke(peer);
         }
 
         private bool OnConnectionRequest(NetPeer arg)
@@ -30,7 +42,7 @@ namespace NetFlanders
 
         public void SendToAll(NetSerializer serializer, bool reliable)
         {
-            foreach(var peer in ConnectedPeers)
+            foreach (var peer in ConnectedPeers)
             {
                 peer.SendReliable(serializer.GetBytes());
             }

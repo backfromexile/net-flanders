@@ -117,7 +117,8 @@ namespace NetFlanders
 
         public void Write(string value)
         {
-            var bytes = _encoding.GetBytes(value, 0, value.Length, _buffer, _position);
+            var bytes = _encoding.GetBytes(value, 0, value.Length, _buffer, _position + sizeof(ushort));
+            Write((ushort)bytes);
             _position += bytes;
         }
 

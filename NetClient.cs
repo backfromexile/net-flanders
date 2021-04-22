@@ -28,7 +28,7 @@ namespace NetFlanders
             return result;
         }
 
-        private void OnDisconnected(DisconnectReason reason)
+        private void OnDisconnected(NetPeer peer, DisconnectReason reason)
         {
             ServerPeer = null;
         }
