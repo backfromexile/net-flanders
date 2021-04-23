@@ -43,14 +43,14 @@ namespace NetFlanders
 
         internal void HandleReceivedPacket(NetPacket packet)
         {
-            lock(_receivedQueueLock)
+            OnPacketReceived(packet);
+
+            lock (_receivedQueueLock)
             {
                 // skip if a packet with a higher sequence number was already polled
                 if (_lastSequence > packet.SequenceNumber)
                     return;
             }
-
-            OnPacketReceived(packet);
 
             lock (_receivedQueueLock)
             {
@@ -78,11 +78,11 @@ namespace NetFlanders
                     return false;
 
                 packet = first.Packet;
-                if (OnPollPacket(packet))
-                {
-                    _receivedPacketQueue.Remove(first);
-                    _lastSequence = first.Packet.SequenceNumber;
-                }
+                if (!OnPollPacket(packet))
+                    return false;
+
+                _receivedPacketQueue.Remove(first);
+                _lastSequence = first.Packet.SequenceNumber;
                 return true;
             }
         }

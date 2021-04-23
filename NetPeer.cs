@@ -33,6 +33,7 @@ namespace NetFlanders
             .Add(NetPeerState.ConnectionRequested, NetPeerState.Disconnected, NetPeerCommand.ConnectionRejected)
             .Add(NetPeerState.ConnectionRequested, NetPeerState.Disconnected, NetPeerCommand.Timeout)
             .Add(NetPeerState.Connected, NetPeerState.Disconnected, NetPeerCommand.Disconnect);
+           // .Add(NetPeerState.Connected, NetPeerState.Disconnected, NetPeerCommand.Timeout);
 
         public NetPeerState State => StateMachine.State;
         #endregion

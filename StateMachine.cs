@@ -57,7 +57,7 @@ namespace NetFlanders
         {
             if(_started)
             {
-                throw new InvalidOperationException();
+                throw new InvalidOperationException("Cannot start the state machine multiple times.");
             }
         }
 
@@ -85,11 +85,11 @@ namespace NetFlanders
             lock (_lock)
             {
                 if (!_started)
-                    throw new InvalidOperationException();
+                    throw new InvalidOperationException("State machine not started");
 
                 var stateInfo = _states[_state];
                 if (!stateInfo.Transitions.TryGetValue(command, out var nextStateInfo))
-                    throw new InvalidOperationException();
+                    throw new InvalidOperationException($"Command '{command}' cannot be applied at state '{_state}'.");
 
                 stateInfo.ExitCallback?.Invoke();
                 nextStateInfo.EnterCallback?.Invoke();

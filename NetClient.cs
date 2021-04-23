@@ -36,7 +36,7 @@ namespace NetFlanders
         public void Send(NetSerializer serializer, bool reliable)
         {
             if (ServerPeer is null)
-                throw new InvalidOperationException();
+                throw new InvalidOperationException("Server peer is null");
 
             var data = serializer.GetBytes();
             if (reliable)

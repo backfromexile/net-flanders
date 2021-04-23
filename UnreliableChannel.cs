@@ -1,17 +1,9 @@
-﻿using System;
-
-namespace NetFlanders
+﻿namespace NetFlanders
 {
-
     internal sealed class UnreliableChannel : SequencedChannel
     {
         public UnreliableChannel(NetPeer peer) : base(peer)
         {
-        }
-
-        protected override void OnPacketReceived(NetPacket packet)
-        {
-            throw new NotImplementedException();
         }
 
         protected override bool OnPollPacket(NetPacket packet)

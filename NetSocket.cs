@@ -55,7 +55,7 @@ namespace NetFlanders
         public void Start()
         {
             if (_started)
-                throw new InvalidOperationException();
+                throw new InvalidOperationException("Cannot start the socket multiple times.");
 
             _started = true;
             _receiveThread.Start();
@@ -68,6 +68,7 @@ namespace NetFlanders
 
         private NetPeer GetOrAddPeer(IPEndPoint endpoint)
         {
+            endpoint.Address = endpoint.Address.MapToIPv6();
             NetPeer peer;
             lock (_peersLock)
             {
@@ -168,7 +169,7 @@ namespace NetFlanders
         {
             // don't allow sending connection requests in server mode
             if (!ClientMode)
-                throw new InvalidOperationException();
+                throw new InvalidOperationException("Cannot connect in server mode");
 
 
             var addresses = Dns.GetHostAddresses(host);
@@ -184,14 +185,6 @@ namespace NetFlanders
             var peer = GetOrAddPeer(endpoint);
             peer.StateMachine.Apply(NetPeerCommand.RequestConnection);
 
-            try
-            {
-                peer.Send(new NetPacket(NetPacketType.ConnectionRequest, 0));
-            }
-            catch (SocketException ex)
-            {
-                return ConnectResult.Error;
-            }
 
             var resetEvent = new SemaphoreSlim(0, 1);
             bool connected = false;
@@ -202,6 +195,16 @@ namespace NetFlanders
             });
 
             peer.ConnectionResponse += callback;
+
+            try
+            {
+                peer.Send(new NetPacket(NetPacketType.ConnectionRequest, 0));
+            }
+            catch (SocketException)
+            {
+                return ConnectResult.Error;
+            }
+
             bool gotResponse = await resetEvent.WaitAsync(_config.Timeout);
             peer.ConnectionResponse -= callback;
 
