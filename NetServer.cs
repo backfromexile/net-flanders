@@ -42,9 +42,17 @@ namespace NetFlanders
 
         public void SendToAll(NetSerializer serializer, bool reliable)
         {
+            var bytes = serializer.GetBytes();
             foreach (var peer in ConnectedPeers)
             {
-                peer.SendReliable(serializer.GetBytes());
+                if (reliable)
+                {
+                    peer.SendReliable(bytes);
+                }
+                else
+                {
+                    peer.SendUnreliable(bytes);
+                }
             }
         }
     }

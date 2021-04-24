@@ -11,7 +11,7 @@ namespace NetFlanders
 {
     internal sealed class NetSocket
     {
-        private readonly UdpClient _socket; //TODO: change this to a native socket to be able to catch socket errors (like Host Unreachable) and handle them
+        private readonly UdpClient _socket; //TODO: change this to a native socket to be able to catch socket errors (like Host Unreachable) and handle them?
 
         private readonly ConcurrentDictionary<IPEndPoint, NetPeer> _peers = new ConcurrentDictionary<IPEndPoint, NetPeer>();
         internal IReadOnlyCollection<NetPeer> ConnectedPeers => _peers.Values.Where(peer => peer.StateMachine.State == NetPeerState.Connected).ToList();
@@ -46,6 +46,7 @@ namespace NetFlanders
 
             _socket = new UdpClient(AddressFamily.InterNetworkV6);
             _socket.Client.DualMode = true; // for both IPv4 and IPv6 to work
+            _socket.SetConnectionResetErrorEnabled(false);
             var endpoint = new IPEndPoint(IPAddress.IPv6Any, port);
             _socket.Client.Bind(endpoint);
 
@@ -106,12 +107,12 @@ namespace NetFlanders
         private void OnReceive(IAsyncResult asyncResult)
         {
             IPEndPoint endpoint = null!;
-            byte[] data = _socket.EndReceive(asyncResult, ref endpoint); //TODO: throws exception when remote socket closes
-            ReceiveAsync();
+            byte[] data = _socket.EndReceive(asyncResult, ref endpoint);
 
             if (data.Length < NetPacket.HeaderSize)
             {
                 Logger.LogWarning($"Received too small packet ({data.Length} bytes) from {endpoint}, ignoring...");
+                ReceiveAsync();
                 return;
             }
 
@@ -126,6 +127,8 @@ namespace NetFlanders
 
             Logger.LogDebug($"Received {packetType} packet ({data.Length} bytes) from {endpoint}");
             peer.HandlePacket(packet);
+
+            ReceiveAsync();
         }
 
         internal void Send(IPEndPoint endpoint, NetPacket packet)

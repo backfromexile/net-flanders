@@ -16,7 +16,7 @@
 
         protected override void SendInternal(ushort sequence, byte[] data)
         {
-            var packet = new NetPacket(NetPacketType.Reliable, sequence, data);
+            var packet = new NetPacket(NetPacketType.Unreliable, sequence, data);
             Peer.Send(packet);
         }
     }
