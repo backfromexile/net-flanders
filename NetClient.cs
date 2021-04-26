@@ -9,6 +9,8 @@ namespace NetFlanders
         private readonly NetSocket _socket;
         public NetPeer? ServerPeer { get; private set; }
 
+        public event Action? Disconnected;
+
         public NetClient(NetConfig config)
         {
             _socket = new NetSocket(true, config);
@@ -31,6 +33,7 @@ namespace NetFlanders
         private void OnDisconnected(NetPeer peer, DisconnectReason reason)
         {
             ServerPeer = null;
+            Disconnected?.Invoke();
         }
 
         public void Send(NetSerializer serializer, bool reliable)
